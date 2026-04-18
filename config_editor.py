@@ -23,24 +23,24 @@ def get_base_path():
         possible_paths = [
             script_dir,  # 当前脚本目录
             os.path.dirname(script_dir),  # 上级目录
-            r"D:\Taikonijiro\TaikoNauts-Beta-20260408\publish",  # Windows开发路径
+            os.path.join("D:\\", "Taikonijiro", "TaikoNauts-Beta-20260408", "publish"),  # Windows开发路径
         ]
 
         for path in possible_paths:
             config_path = os.path.join(path, "Config", "GameConfig.json")
             if os.path.exists(config_path):
-                return path
+                return os.path.normpath(path)  # 规范化路径分隔符
 
         # 如果找不到，返回当前目录
-        return script_dir
+        return os.path.normpath(script_dir)
 
 
 BASE_PATH = get_base_path()
 
 CONFIGS = [
-    ("游戏配置", "Config/GameConfig.json"),
-    ("系统配置", "Config/SystemConfig.json"),
-    ("皮肤配置", "Skins/A-Style/SkinConfig.json"),
+    ("游戏配置", os.path.join("Config", "GameConfig.json")),
+    ("系统配置", os.path.join("Config", "SystemConfig.json")),
+    ("皮肤配置", os.path.join("Skins", "A-Style", "SkinConfig.json")),
 ]
 
 # 嵌套对象中的键，按选项卡分组，仅显示可编辑的简单字段
@@ -488,7 +488,8 @@ class MainWindow(QMainWindow):
         self.tabs.clear()
         self.editors = []
         for name, rel_path in CONFIGS:
-            full_path = os.path.join(self.base_path, rel_path)
+            # 使用 os.path.join 并规范化路径，确保Windows格式
+            full_path = os.path.normpath(os.path.join(self.base_path, rel_path))
             editor = ConfigEditor(full_path)
             self.tabs.addTab(editor, name)
             self.editors.append(editor)
@@ -496,8 +497,8 @@ class MainWindow(QMainWindow):
     def choose_directory(self):
         dir_path = QFileDialog.getExistingDirectory(self, "选择游戏目录", self.base_path)
         if dir_path:
-            self.base_path = dir_path
-            self.path_label.setText(dir_path)
+            self.base_path = os.path.normpath(dir_path)  # 规范化路径分隔符
+            self.path_label.setText(self.base_path)
             self._load_tabs()
 
     def toggle_theme(self):
