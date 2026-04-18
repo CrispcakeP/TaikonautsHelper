@@ -5,13 +5,37 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QScrollArea, QFormLayout, QLineEdit, QSpinBox,
     QDoubleSpinBox, QComboBox, QLabel, QPushButton, QFrame,
-    QMessageBox, QGroupBox
+    QMessageBox, QGroupBox, QFileDialog
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
 
-BASE_PATH = r"D:\Taikonijiro\TaikoNauts-Beta-20260408\publish"
+def get_base_path():
+    """获取基础路径（支持打包后的exe和开发环境）"""
+    if getattr(sys, 'frozen', False):
+        # 打包后的exe
+        return os.path.dirname(sys.executable)
+    else:
+        # 开发环境
+        # 尝试查找配置文件所在目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        possible_paths = [
+            script_dir,  # 当前脚本目录
+            os.path.dirname(script_dir),  # 上级目录
+            r"D:\Taikonijiro\TaikoNauts-Beta-20260408\publish",  # Windows开发路径
+        ]
+
+        for path in possible_paths:
+            config_path = os.path.join(path, "Config", "GameConfig.json")
+            if os.path.exists(config_path):
+                return path
+
+        # 如果找不到，返回当前目录
+        return script_dir
+
+
+BASE_PATH = get_base_path()
 
 CONFIGS = [
     ("游戏配置", "Config/GameConfig.json"),
@@ -442,6 +466,15 @@ class MainWindow(QMainWindow):
         self.theme_btn.clicked.connect(self.toggle_theme)
         toolbar.addWidget(self.theme_btn)
 
+        self.dir_btn = QPushButton("选择目录")
+        self.dir_btn.setFixedWidth(100)
+        self.dir_btn.clicked.connect(self.choose_directory)
+        toolbar.addWidget(self.dir_btn)
+
+        self.path_label = QLabel(self.base_path)
+        self.path_label.setStyleSheet("color: #888; font-size: 11px;")
+        toolbar.addWidget(self.path_label)
+
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
@@ -449,12 +482,23 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
 
+        self._load_tabs()
+
+    def _load_tabs(self):
+        self.tabs.clear()
         self.editors = []
         for name, rel_path in CONFIGS:
             full_path = os.path.join(self.base_path, rel_path)
             editor = ConfigEditor(full_path)
             self.tabs.addTab(editor, name)
             self.editors.append(editor)
+
+    def choose_directory(self):
+        dir_path = QFileDialog.getExistingDirectory(self, "选择游戏目录", self.base_path)
+        if dir_path:
+            self.base_path = dir_path
+            self.path_label.setText(dir_path)
+            self._load_tabs()
 
     def toggle_theme(self):
         self.is_dark = not self.is_dark
