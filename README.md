@@ -1,6 +1,6 @@
-<<<<<<< HEAD
 # TaikoNautsHelper
 
+不包括skin文件夹的.json快速修改工具
 Qt GUI editor for `GameConfig.json` and `SystemConfig.json`.
 
 ## Run
@@ -18,11 +18,5 @@ python build_exe.py
 The editor auto-detects:
 
 ```text
-D:\Taikonijiro\TaikoNauts-Beta-20260408\publish
+Taikonijiro\TaikoNauts-Beta-20260408\publish
 ```
-
-You can also choose another `publish` directory in the GUI.
-=======
-# TaikonautsHelper
-a small tool that easy to set your Taikonauts
->>>>>>> f4f5af9d5002c860430daf0dd14a8ff2d9e04f4a
