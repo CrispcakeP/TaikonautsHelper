@@ -1,519 +1,533 @@
-import sys
 import json
 import os
+import sys
+from copy import deepcopy
+
+from PySide6.QtCore import QProcess, Qt
+from PySide6.QtGui import QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTabWidget, QScrollArea, QFormLayout, QLineEdit, QSpinBox,
-    QDoubleSpinBox, QComboBox, QLabel, QPushButton, QFrame,
-    QMessageBox, QGroupBox, QFileDialog
+    QApplication,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 
 
-def get_base_path():
-    """获取基础路径（支持打包后的exe和开发环境）"""
-    if getattr(sys, 'frozen', False):
-        # 打包后的exe
+DEFAULT_GAME_ROOT = r"D:\Taikonijiro\TaikoNauts-Beta-20260408\publish"
+GAME_EXE = "TaikoNauts.exe"
+BACKGROUND_REL = os.path.join("Skins", "A-Style", "Image", "10.PlayerCustomize", "Background.png")
+ICON_REL = os.path.join("Skins", "A-Style", "Image", "00.Demo", "Animes", "1", "Don.png")
+CONFIG_FILES = {
+    "GameConfig.json": os.path.join("Config", "GameConfig.json"),
+    "SystemConfig.json": os.path.join("Config", "SystemConfig.json"),
+}
+
+KEY_NAMES = {
+    "skinPath": "皮肤目录",
+    "songPath": "歌曲目录",
+    "username": "用户名",
+    "password": "密码",
+    "fullscreen": "全屏",
+    "resolution": "分辨率",
+    "targetFPS": "目标 FPS",
+    "vSync": "垂直同步",
+    "masterVolume": "主音量",
+    "seVolume": "音效音量",
+    "musicVolume": "音乐音量",
+    "bgmVolume": "背景音乐音量",
+    "voiceVolume": "语音音量",
+    "showFPS": "显示 FPS",
+    "donLeft1P": "1P左侧咚",
+    "donRight1P": "1P右侧咚",
+    "kaLeft1P": "1P左侧咔",
+    "kaRight1P": "1P右侧咔",
+    "donLeft2P": "2P左侧咚",
+    "donRight2P": "2P右侧咚",
+    "kaLeft2P": "2P左侧咔",
+    "kaRight2P": "2P右侧咔",
+    "setFavoriteKeys": "收藏键",
+    "setMouseModeKeys": "鼠标模式键",
+    "quickRetryKey": "快速重试键",
+    "quickBackKey": "快速返回键",
+    "deviceName": "设备名",
+    "type": "类型",
+    "key": "键盘按键",
+    "button": "手柄按钮",
+}
+
+
+def app_dir():
+    if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    else:
-        # 开发环境
-        # 尝试查找配置文件所在目录
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        possible_paths = [
-            script_dir,  # 当前脚本目录
-            os.path.dirname(script_dir),  # 上级目录
-            os.path.join("D:\\", "Taikonijiro", "TaikoNauts-Beta-20260408", "publish"),  # Windows开发路径
-        ]
-
-        for path in possible_paths:
-            config_path = os.path.join(path, "Config", "GameConfig.json")
-            if os.path.exists(config_path):
-                return os.path.normpath(path)  # 规范化路径分隔符
-
-        # 如果找不到，返回当前目录
-        return os.path.normpath(script_dir)
+    return os.path.dirname(os.path.abspath(__file__))
 
 
-BASE_PATH = get_base_path()
-
-CONFIGS = [
-    ("游戏配置", os.path.join("Config", "GameConfig.json")),
-    ("系统配置", os.path.join("Config", "SystemConfig.json")),
-    ("皮肤配置", os.path.join("Skins", "A-Style", "SkinConfig.json")),
-]
-
-# 嵌套对象中的键，按选项卡分组，仅显示可编辑的简单字段
-# 键绑定的数组对象结构统一，只编辑 key 字段即可
-KEY_BINDING_KEYS = [
-    "donLeft1P", "donRight1P", "kaLeft1P", "kaRight1P",
-    "donLeft2P", "donRight2P", "kaLeft2P", "kaRight2P",
-    "setFavoriteKeys", "setMouseModeKeys", "quickRetryKey", "quickBackKey",
-]
+def has_config_files(root):
+    return all(os.path.exists(os.path.join(root, rel)) for rel in CONFIG_FILES.values())
 
 
-def get_key_display_name(key):
-    """将键名转为中文显示名"""
-    names = {
-        "donLeft1P": "咚 左 (1P)", "donRight1P": "咚 右 (1P)",
-        "kaLeft1P": "咔 左 (1P)", "kaRight1P": "咔 右 (1P)",
-        "donLeft2P": "咚 左 (2P)", "donRight2P": "咚 右 (2P)",
-        "kaLeft2P": "咔 左 (2P)", "kaRight2P": "咔 右 (2P)",
-        "setFavoriteKeys": "收藏键", "setMouseModeKeys": "鼠标模式键",
-        "quickRetryKey": "快速重试键", "quickBackKey": "快速返回键",
-    }
-    return names.get(key, key)
+def find_game_root():
+    for root in [DEFAULT_GAME_ROOT, app_dir(), os.path.dirname(app_dir()), os.getcwd()]:
+        if root and has_config_files(root):
+            return os.path.normpath(root)
+    return os.path.normpath(DEFAULT_GAME_ROOT)
 
 
-class ConfigEditor(QWidget):
-    """单个配置文件的编辑器"""
+def to_qss_path(path):
+    return path.replace("\\", "/")
 
-    def __init__(self, config_path, parent=None):
-        super().__init__(parent)
-        self.config_path = config_path
-        self.config_data = {}
-        self.widget_map = {}  # (key_path_tuple) -> widget
-        self.init_ui()
 
-    def init_ui(self):
+def make_relative_path(path, root):
+    try:
+        rel = os.path.relpath(path, root)
+        if not rel.startswith(".."):
+            return rel.replace("\\", "/")
+    except ValueError:
+        pass
+    return path.replace("\\", "/")
+
+
+class PathEditor(QWidget):
+    def __init__(self, value, root, is_list=False):
+        super().__init__()
+        self.root = root
+        self.is_list = is_list
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.edit = QLineEdit()
+        self.edit.setText(self.format_value(value))
+        self.button = QPushButton("选择目录")
+        self.button.clicked.connect(self.choose_directory)
+
+        layout.addWidget(self.edit, 1)
+        layout.addWidget(self.button)
+
+    def format_value(self, value):
+        if self.is_list:
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    def choose_directory(self):
+        start = self.root
+        if not self.is_list and self.edit.text():
+            start = os.path.join(self.root, self.edit.text())
+        directory = QFileDialog.getExistingDirectory(self, "选择目录", start)
+        if not directory:
+            return
+
+        rel = make_relative_path(directory, self.root)
+        if self.is_list:
+            self.edit.setText(json.dumps([rel + "/" if not rel.endswith("/") else rel], ensure_ascii=False))
+        else:
+            self.edit.setText(rel)
+
+    def value(self, old_value):
+        text = self.edit.text()
+        if self.is_list:
+            return json.loads(text)
+        return text
+
+
+class KeyBindEditor(QPushButton):
+    def __init__(self, value):
+        super().__init__()
+        self.key_text = str(value)
+        self.waiting = False
+        self.setText(self.display_text())
+        self.clicked.connect(self.start_capture)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def display_text(self):
+        return "按下键盘按键..." if self.waiting else f"{self.key_text}  |  绑定按键"
+
+    def start_capture(self):
+        self.waiting = True
+        self.setText(self.display_text())
+        self.setFocus()
+
+    def keyPressEvent(self, event):
+        if not self.waiting:
+            super().keyPressEvent(event)
+            return
+
+        sequence = QKeySequence(event.key()).toString()
+        self.key_text = sequence or event.text().upper()
+        self.waiting = False
+        self.setText(self.display_text())
+
+    def value(self):
+        return self.key_text
+
+
+class JsonConfigEditor(QWidget):
+    def __init__(self, path, root):
+        super().__init__()
+        self.path = path
+        self.root = root
+        self.data = {}
+        self.original_data = {}
+        self.widgets = {}
+        self.build_ui()
+        self.load()
+
+    def build_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        self.path_label = QLabel(self.path)
+        self.path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.path_label.setObjectName("pathLabel")
+        layout.addWidget(self.path_label)
 
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
         self.content = QWidget()
         self.form = QFormLayout(self.content)
-        self.form.setSpacing(10)
-        self.form.setContentsMargins(16, 16, 16, 16)
+        self.form.setContentsMargins(18, 14, 18, 14)
+        self.form.setHorizontalSpacing(18)
+        self.form.setVerticalSpacing(10)
+        self.scroll.setWidget(self.content)
+        layout.addWidget(self.scroll, 1)
 
-        scroll.setWidget(self.content)
-        layout.addWidget(scroll)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        self.reload_button = QPushButton("重新加载")
+        self.reload_button.clicked.connect(self.load)
+        self.save_button = QPushButton("保存")
+        self.save_button.clicked.connect(self.save)
+        buttons.addWidget(self.reload_button)
+        buttons.addWidget(self.save_button)
+        layout.addLayout(buttons)
 
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
+    def load(self):
+        self.clear_form()
 
-        self.reload_btn = QPushButton("重新加载")
-        self.reload_btn.clicked.connect(self.load_config)
-        btn_row.addWidget(self.reload_btn)
-
-        self.save_btn = QPushButton("保存")
-        self.save_btn.clicked.connect(self.save_config)
-        btn_row.addWidget(self.save_btn)
-
-        layout.addLayout(btn_row)
-
-    def load_config(self):
-        # 清除现有控件
-        for i in reversed(range(self.form.count())):
-            item = self.form.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                self._clear_layout(item.layout())
-        self.widget_map.clear()
-
-        if not os.path.exists(self.config_path):
-            self.form.addRow(QLabel(f"配置文件不存在: {self.config_path}"))
+        if not os.path.exists(self.path):
+            self.form.addRow(QLabel("状态"), QLabel("未找到文件"))
+            self.data = {}
+            self.original_data = {}
             return
 
         try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                self.config_data = json.load(f)
-            self._build_fields(self.config_data)
-        except Exception as e:
-            self.form.addRow(QLabel(f"加载配置失败: {e}"))
+            with open(self.path, "r", encoding="utf-8-sig") as file:
+                self.data = json.load(file)
+        except Exception as error:
+            self.form.addRow(QLabel("状态"), QLabel(f"读取失败: {error}"))
+            self.data = {}
+            self.original_data = {}
+            return
 
-    def _clear_layout(self, layout):
-        for i in reversed(range(layout.count())):
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self.original_data = deepcopy(self.data)
+        self.add_fields(self.data)
+
+    def clear_form(self):
+        self.widgets.clear()
+        while self.form.count():
+            item = self.form.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
             elif item.layout():
-                self._clear_layout(item.layout())
+                self.clear_layout(item.layout())
 
-    def _build_fields(self, data):
-        """为顶层键构建编辑字段"""
+    def clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+            elif item.layout():
+                self.clear_layout(item.layout())
+
+    def add_fields(self, data, prefix=()):
+        if not prefix and "username" in data and "password" in data:
+            self.add_section("登录")
+            for key in ["username", "password"]:
+                self.add_value(prefix + (key,), data[key])
+            self.add_section("配置")
+
         for key, value in data.items():
-            if key in KEY_BINDING_KEYS and isinstance(value, list):
-                self._build_key_binding(key, value)
-            elif isinstance(value, bool):
-                self.form.addRow(self._label(key), self._bool_combo(key, value))
-            elif isinstance(value, int):
-                self.form.addRow(self._label(key), self._int_spin(key, value))
-            elif isinstance(value, float):
-                self.form.addRow(self._label(key), self._float_spin(key, value))
-            elif isinstance(value, str):
-                self.form.addRow(self._label(key), self._str_edit(key, value))
-            elif isinstance(value, list):
-                # 简单数组（如 songPath）
-                edit = QLineEdit(json.dumps(value, ensure_ascii=False))
-                edit.setMinimumWidth(220)
-                self.widget_map[(key,)] = edit
-                self.form.addRow(self._label(key), edit)
+            if not prefix and key in {"username", "password"}:
+                continue
 
-    def _build_key_binding(self, key, bindings):
-        """构建键绑定分组"""
-        group = QGroupBox(get_key_display_name(key))
-        g_layout = QFormLayout(group)
-        g_layout.setSpacing(6)
+            path = prefix + (key,)
+            if isinstance(value, dict):
+                self.add_section(self.label_for_path(path))
+                self.add_fields(value, path)
+            elif isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+                self.add_section(self.label_for_path(path))
+                for index, item in enumerate(value):
+                    for sub_key, sub_value in item.items():
+                        self.add_value(path + (index, sub_key), sub_value)
+            else:
+                self.add_value(path, value)
 
-        for idx, binding in enumerate(bindings):
-            if isinstance(binding, dict):
-                for bkey, bval in binding.items():
-                    w = self._create_widget_for_value(bval)
-                    if w:
-                        path = (key, idx, bkey)
-                        self.widget_map[path] = w
-                        g_layout.addRow(self._label(bkey), w)
+    def add_section(self, text):
+        title = QLabel(text)
+        title.setObjectName("sectionLabel")
+        self.form.addRow(title)
 
-        self.form.addRow(group)
+    def add_value(self, path, value):
+        label = QLabel(self.label_for_path(path))
+        editor = self.create_editor(value, path)
+        self.form.addRow(label, editor)
 
-    def _create_widget_for_value(self, value):
+    def label_for_path(self, path):
+        parts = [part for part in path if not isinstance(part, int)]
+        translated = [KEY_NAMES.get(part, str(part)) for part in parts]
+        return " / ".join(translated)
+
+    def create_editor(self, value, path):
+        last_key = str(path[-1])
+        is_path = "path" in last_key.lower()
+
         if isinstance(value, bool):
-            return self._bool_combo(None, value)
-        elif isinstance(value, int):
-            return self._int_spin(None, value)
-        elif isinstance(value, float):
-            return self._float_spin(None, value)
-        elif isinstance(value, str):
-            return self._str_edit(None, value)
-        return None
+            editor = QComboBox()
+            editor.addItems(["true", "false"])
+            editor.setCurrentText("true" if value else "false")
+        elif last_key == "key":
+            editor = KeyBindEditor(value)
+        elif is_path:
+            editor = PathEditor(value, self.root, isinstance(value, list))
+        else:
+            editor = QLineEdit()
+            if last_key == "password":
+                editor.setEchoMode(QLineEdit.Password)
+            if isinstance(value, (list, dict)):
+                editor.setText(json.dumps(value, ensure_ascii=False))
+            else:
+                editor.setText(str(value))
 
-    def _bool_combo(self, key, value):
-        combo = QComboBox()
-        combo.addItems(["true", "false"])
-        combo.setCurrentText(str(value).lower())
-        combo.setMinimumWidth(220)
-        if key is not None:
-            self.widget_map[(key,)] = combo
-        return combo
+        editor.setMinimumWidth(280)
+        self.widgets[path] = editor
+        return editor
 
-    def _int_spin(self, key, value):
-        spin = QSpinBox()
-        spin.setRange(-999999, 999999)
-        spin.setValue(value)
-        spin.setMinimumWidth(220)
-        if key is not None:
-            self.widget_map[(key,)] = spin
-        return spin
-
-    def _float_spin(self, key, value):
-        spin = QDoubleSpinBox()
-        spin.setRange(-999999.0, 999999.0)
-        spin.setDecimals(6)
-        spin.setValue(value)
-        spin.setMinimumWidth(220)
-        if key is not None:
-            self.widget_map[(key,)] = spin
-        return spin
-
-    def _str_edit(self, key, value):
-        edit = QLineEdit(value)
-        edit.setMinimumWidth(220)
-        if key is not None:
-            self.widget_map[(key,)] = edit
-        return edit
-
-    def _label(self, key):
-        lbl = QLabel(key)
-        lbl.setMinimumWidth(200)
-        return lbl
-
-    def save_config(self):
+    def save(self):
         try:
-            self._collect_values()
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                json.dump(self.config_data, f, indent=2, ensure_ascii=False)
-            QMessageBox.information(self, "成功", "配置已保存")
-        except Exception as e:
-            QMessageBox.warning(self, "错误", f"保存失败: {e}")
+            updated = deepcopy(self.original_data)
+            for path, widget in self.widgets.items():
+                old_value = self.value_at_path(self.original_data, path)
+                new_value = self.read_widget(widget, old_value)
+                self.set_value_at_path(updated, path, new_value)
 
-    def _collect_values(self):
-        """从控件回写值到 config_data"""
-        for path, widget in self.widget_map.items():
-            if len(path) == 1:
-                key = path[0]
-                self.config_data[key] = self._widget_value(widget, self.config_data[key])
-            elif len(path) == 3:
-                key, idx, bkey = path
-                self.config_data[key][idx][bkey] = self._widget_value(
-                    widget, self.config_data[key][idx][bkey]
-                )
+            with open(self.path, "w", encoding="utf-8") as file:
+                json.dump(updated, file, ensure_ascii=False, indent=2)
+                file.write("\n")
 
-    def _widget_value(self, widget, original):
+            self.data = updated
+            self.original_data = deepcopy(updated)
+            QMessageBox.information(self, "保存完成", f"已保存: {os.path.basename(self.path)}")
+        except Exception as error:
+            QMessageBox.warning(self, "保存失败", str(error))
+
+    def read_widget(self, widget, old_value):
         if isinstance(widget, QComboBox):
             return widget.currentText() == "true"
-        elif isinstance(widget, QSpinBox):
+        if isinstance(widget, KeyBindEditor):
             return widget.value()
-        elif isinstance(widget, QDoubleSpinBox):
-            return widget.value()
-        elif isinstance(widget, QLineEdit):
-            text = widget.text()
-            if isinstance(original, list):
-                try:
-                    return json.loads(text)
-                except json.JSONDecodeError:
-                    return original
-            return text
-        return original
+        if isinstance(widget, PathEditor):
+            return widget.value(old_value)
 
+        text = widget.text()
+        if isinstance(old_value, int) and not isinstance(old_value, bool):
+            return int(text)
+        if isinstance(old_value, float):
+            return float(text)
+        if isinstance(old_value, (list, dict)):
+            return json.loads(text)
+        return text
 
-LIGHT_QSS = """
-QMainWindow, QWidget {
-    background-color: #f8f8f8;
-    color: #2c2c2c;
-    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
-}
-QTabWidget::pane {
-    border: 1px solid #d4d4d4;
-    background-color: #ffffff;
-    border-radius: 4px;
-}
-QTabBar::tab {
-    background-color: #e8e8e8;
-    border: 1px solid #d4d4d4;
-    border-bottom: none;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    padding: 9px 20px;
-    margin-right: 2px;
-    color: #555;
-}
-QTabBar::tab:selected {
-    background-color: #ffffff;
-    color: #2c2c2c;
-    font-weight: bold;
-}
-QScrollArea {
-    background-color: #ffffff;
-    border: none;
-}
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    background-color: #ffffff;
-    border: 1px solid #c8c8c8;
-    padding: 6px 8px;
-    border-radius: 4px;
-    color: #2c2c2c;
-}
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
-    border: 1.5px solid #0078d4;
-}
-QPushButton {
-    background-color: #0078d4;
-    color: #ffffff;
-    border: none;
-    padding: 9px 20px;
-    border-radius: 5px;
-    font-weight: bold;
-    font-size: 13px;
-}
-QPushButton:hover {
-    background-color: #1a86d9;
-}
-QPushButton:pressed {
-    background-color: #005a9e;
-}
-QLabel {
-    color: #2c2c2c;
-}
-QGroupBox {
-    border: 1px solid #d4d4d4;
-    border-radius: 6px;
-    margin-top: 14px;
-    padding: 14px 10px 10px 10px;
-    background-color: #fafafa;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 14px;
-    padding: 0 6px;
-    color: #444;
-}
-QScrollBar:vertical {
-    border: none;
-    background: #f0f0f0;
-    width: 8px;
-    border-radius: 4px;
-}
-QScrollBar::handle:vertical {
-    background: #c0c0c0;
-    border-radius: 4px;
-    min-height: 30px;
-}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-"""
+    def value_at_path(self, data, path):
+        value = data
+        for part in path:
+            value = value[part]
+        return value
 
-DARK_QSS = """
-QMainWindow, QWidget {
-    background-color: #1a1a2e;
-    color: #e0e0e0;
-    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
-}
-QTabWidget::pane {
-    border: 1px solid #2d2d44;
-    background-color: #16213e;
-    border-radius: 4px;
-}
-QTabBar::tab {
-    background-color: #1a1a2e;
-    border: 1px solid #2d2d44;
-    border-bottom: none;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    padding: 9px 20px;
-    margin-right: 2px;
-    color: #999;
-}
-QTabBar::tab:selected {
-    background-color: #16213e;
-    color: #e0e0e0;
-    font-weight: bold;
-}
-QScrollArea {
-    background-color: #16213e;
-    border: none;
-}
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    background-color: #0f3460;
-    border: 1px solid #2d2d44;
-    padding: 6px 8px;
-    border-radius: 4px;
-    color: #e0e0e0;
-}
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
-    border: 1.5px solid #0078d4;
-}
-QComboBox QAbstractItemView {
-    background-color: #0f3460;
-    color: #e0e0e0;
-    selection-background-color: #0078d4;
-}
-QPushButton {
-    background-color: #e94560;
-    color: #ffffff;
-    border: none;
-    padding: 9px 20px;
-    border-radius: 5px;
-    font-weight: bold;
-    font-size: 13px;
-}
-QPushButton:hover {
-    background-color: #ff6b81;
-}
-QPushButton:pressed {
-    background-color: #c73a54;
-}
-QLabel {
-    color: #e0e0e0;
-}
-QGroupBox {
-    border: 1px solid #2d2d44;
-    border-radius: 6px;
-    margin-top: 14px;
-    padding: 14px 10px 10px 10px;
-    background-color: #1a1a2e;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 14px;
-    padding: 0 6px;
-    color: #ccc;
-}
-QScrollBar:vertical {
-    border: none;
-    background: #1a1a2e;
-    width: 8px;
-    border-radius: 4px;
-}
-QScrollBar::handle:vertical {
-    background: #3a3a5c;
-    border-radius: 4px;
-    min-height: 30px;
-}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-"""
+    def set_value_at_path(self, data, path, value):
+        target = data
+        for part in path[:-1]:
+            target = target[part]
+        target[path[-1]] = value
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, base_path):
+    def __init__(self):
         super().__init__()
-        self.base_path = base_path
-        self.is_dark = False
-        self.init_ui()
-        self.setStyleSheet(LIGHT_QSS)
+        self.root = find_game_root()
+        self.editors = {}
+        self.build_ui()
+        self.apply_assets()
 
-    def init_ui(self):
-        self.setWindowTitle("TaikoNauts 配置编辑器")
-        self.setGeometry(100, 100, 820, 620)
-        self.setMinimumSize(640, 460)
+    def build_ui(self):
+        self.setWindowTitle("TaikoNauts JSON 配置编辑器")
+        self.resize(980, 720)
+        self.setMinimumSize(760, 540)
 
         central = QWidget()
+        central.setObjectName("mainWidget")
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
-        # 顶部工具栏
-        toolbar = QHBoxLayout()
+        top = QHBoxLayout()
+        self.root_label = QLabel(self.root)
+        self.root_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.root_label.setObjectName("rootLabel")
 
-        self.theme_btn = QPushButton("暗色模式")
-        self.theme_btn.setFixedWidth(100)
-        self.theme_btn.clicked.connect(self.toggle_theme)
-        toolbar.addWidget(self.theme_btn)
+        choose_button = QPushButton("选择目录")
+        choose_button.clicked.connect(self.choose_root)
+        refresh_button = QPushButton("刷新")
+        refresh_button.clicked.connect(self.reload_all)
+        launch_button = QPushButton("启动游戏")
+        launch_button.clicked.connect(self.launch_game)
 
-        self.dir_btn = QPushButton("选择目录")
-        self.dir_btn.setFixedWidth(100)
-        self.dir_btn.clicked.connect(self.choose_directory)
-        toolbar.addWidget(self.dir_btn)
+        top.addWidget(QLabel("游戏目录"))
+        top.addWidget(self.root_label, 1)
+        top.addWidget(choose_button)
+        top.addWidget(refresh_button)
+        top.addWidget(launch_button)
+        layout.addLayout(top)
 
-        self.path_label = QLabel(self.base_path)
-        self.path_label.setStyleSheet("color: #888; font-size: 11px;")
-        toolbar.addWidget(self.path_label)
-
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
-
-        # 选项卡
         self.tabs = QTabWidget()
-        layout.addWidget(self.tabs)
+        layout.addWidget(self.tabs, 1)
+        self.reload_all()
 
-        self._load_tabs()
-
-    def _load_tabs(self):
+    def reload_all(self):
         self.tabs.clear()
-        self.editors = []
-        for name, rel_path in CONFIGS:
-            # 使用 os.path.join 并规范化路径，确保Windows格式
-            full_path = os.path.normpath(os.path.join(self.base_path, rel_path))
-            editor = ConfigEditor(full_path)
+        self.editors.clear()
+
+        for name, rel_path in CONFIG_FILES.items():
+            path = os.path.normpath(os.path.join(self.root, rel_path))
+            editor = JsonConfigEditor(path, self.root)
+            self.editors[name] = editor
             self.tabs.addTab(editor, name)
-            self.editors.append(editor)
 
-    def choose_directory(self):
-        dir_path = QFileDialog.getExistingDirectory(self, "选择游戏目录", self.base_path)
-        if dir_path:
-            self.base_path = os.path.normpath(dir_path)  # 规范化路径分隔符
-            self.path_label.setText(self.base_path)
-            self._load_tabs()
+    def choose_root(self):
+        directory = QFileDialog.getExistingDirectory(self, "选择游戏 publish 目录", self.root)
+        if not directory:
+            return
 
-    def toggle_theme(self):
-        self.is_dark = not self.is_dark
-        if self.is_dark:
-            self.setStyleSheet(DARK_QSS)
-            self.theme_btn.setText("亮色模式")
-        else:
-            self.setStyleSheet(LIGHT_QSS)
-            self.theme_btn.setText("暗色模式")
+        self.root = os.path.normpath(directory)
+        self.root_label.setText(self.root)
+        self.reload_all()
+        self.apply_assets()
+
+        if not has_config_files(self.root):
+            QMessageBox.warning(
+                self,
+                "未找到配置",
+                "所选目录下需要存在 Config/GameConfig.json 和 Config/SystemConfig.json。",
+            )
+
+    def launch_game(self):
+        exe_path = os.path.join(self.root, GAME_EXE)
+        if not os.path.exists(exe_path):
+            QMessageBox.warning(self, "启动失败", f"未找到: {exe_path}")
+            return
+        if not QProcess.startDetached(exe_path, [], self.root):
+            QMessageBox.warning(self, "启动失败", "无法启动游戏。")
+
+    def apply_assets(self):
+        icon_path = os.path.join(self.root, ICON_REL)
+        background_path = os.path.join(self.root, BACKGROUND_REL)
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
+        background = ""
+        if os.path.exists(background_path):
+            background = (
+                f'background-image: url("{to_qss_path(background_path)}");'
+                "background-position: center;"
+                "background-repeat: no-repeat;"
+            )
+
+        self.setStyleSheet(
+            f"""
+            QWidget#mainWidget {{
+                {background}
+                font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+                font-size: 10pt;
+                color: #202124;
+            }}
+            QTabWidget::pane {{
+                border: 1px solid rgba(210, 216, 226, 190);
+                background: rgba(255, 255, 255, 220);
+                border-radius: 6px;
+            }}
+            QTabBar::tab {{
+                padding: 9px 18px;
+                background: rgba(236, 240, 248, 225);
+                border: 1px solid rgba(210, 216, 226, 190);
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 2px;
+            }}
+            QTabBar::tab:selected {{
+                background: rgba(255, 255, 255, 235);
+                font-weight: 600;
+            }}
+            QScrollArea, QScrollArea > QWidget > QWidget {{
+                background: rgba(255, 255, 255, 218);
+            }}
+            QLabel {{
+                background: transparent;
+            }}
+            QLabel#rootLabel, QLabel#pathLabel {{
+                color: #4f5661;
+            }}
+            QLabel#sectionLabel {{
+                color: #0b57d0;
+                font-weight: 700;
+                margin-top: 10px;
+            }}
+            QLineEdit, QComboBox {{
+                background: rgba(255, 255, 255, 235);
+                border: 1px solid #c8d0dc;
+                border-radius: 4px;
+                padding: 6px 8px;
+                min-height: 24px;
+            }}
+            QLineEdit:focus, QComboBox:focus {{
+                border-color: #0b57d0;
+            }}
+            QPushButton {{
+                background: #0b57d0;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: #0842a0;
+            }}
+            """
+        )
 
 
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei", 9))
-    window = MainWindow(BASE_PATH)
+    app.setFont(QFont("Microsoft YaHei", 10))
+    window = MainWindow()
     window.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
